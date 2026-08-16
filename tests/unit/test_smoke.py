@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 def _client(tmp_path):
     os.environ["ONTHEROAD_DB_PATH"] = str(tmp_path / "test.db")
+    os.environ["ONTHEROAD_TOKEN"] = "smoke-test-token-0123456789abcdef0123"
     from ontheroad.main import create_app
 
     return TestClient(create_app())
@@ -16,7 +17,9 @@ def test_healthz_ok(tmp_path):
     with _client(tmp_path) as client:
         resp = client.get("/healthz")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert isinstance(body["version"], str) and body["version"]
 
 
 def test_index_placeholder_served(tmp_path):
