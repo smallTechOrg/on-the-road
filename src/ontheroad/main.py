@@ -111,6 +111,27 @@ def create_app() -> FastAPI:
     else:
         app.include_router(api_approvals.router)
 
+    try:
+        from ontheroad.term import pty_ws as term_ws  # noqa: PLC0415
+    except ImportError:
+        log.warning("term_router_unavailable")
+    else:
+        app.include_router(term_ws.router)
+
+    try:
+        from ontheroad.preview import screenshot as screenshot_mod  # noqa: PLC0415
+    except ImportError:
+        log.warning("screenshot_router_unavailable")
+    else:
+        app.include_router(screenshot_mod.router)
+
+    try:
+        from ontheroad.files import router as files_router  # noqa: PLC0415
+    except ImportError:
+        log.warning("files_router_unavailable")
+    else:
+        app.include_router(files_router.router)
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
     # Middleware (outermost first at request time = LAST added): request

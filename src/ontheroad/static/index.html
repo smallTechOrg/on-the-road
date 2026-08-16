@@ -31,7 +31,7 @@
       <h1>On The Road</h1>
       <div class="appbar-actions">
         <span id="usage-counter" class="usage-counter chip" title="Daily token total" hidden></span>
-        <button class="icon-btn stub" title="Notifications — coming soon (Phase 3)" aria-label="Notifications (coming soon)">
+        <button class="icon-btn stub" title="Notifications — deferred" aria-label="Notifications (deferred)">
           🔔<span class="stub-dot">coming soon</span>
         </button>
       </div>
@@ -90,8 +90,8 @@
       <div class="chips-row">
         <button class="chip stub" disabled title="Preview — coming soon (Phase 2)">Preview<span class="stub-dot">coming soon</span></button>
         <button class="chip stub" disabled title="Git / PR — coming soon (Phase 2)">Git/PR<span class="stub-dot">coming soon</span></button>
-        <button class="chip stub" disabled title="Terminal — coming soon (Phase 3)">Terminal<span class="stub-dot">coming soon</span></button>
-        <button class="chip stub" disabled title="Diff — coming soon (Phase 3)">Diff<span class="stub-dot">coming soon</span></button>
+        <button class="chip" id="btn-terminal" title="Open terminal in session workdir">Terminal</button>
+        <button class="chip" id="btn-diff" title="View git diff in session workdir">Diff</button>
       </div>
       <form id="composer" class="composer">
         <textarea id="composer-input" rows="1" placeholder="Message the agent…"></textarea>
@@ -109,7 +109,7 @@
        app, so each import failure is swallowed. Each module self-registers
        on window.OTR (e.g. OTR.git.renderEvent, OTR.preview.renderEvent). -->
   <script type="module">
-    for (const mod of ["/usage.js", "/preview.js", "/git.js"]) {
+    for (const mod of ["/usage.js", "/preview.js", "/git.js", "/term.js", "/diff.js"]) {
       import(mod).catch(() => import("/static" + mod).catch(() => {}));
     }
   </script>
