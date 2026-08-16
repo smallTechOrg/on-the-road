@@ -269,16 +269,16 @@ async def collect(adapter, n_or_type, timeout=10.0):
     return events
 
 
-async def test_hermes_adapter_full_turn_against_fake_peer(tmp_path, monkeypatch, fake_peer_cmd):
+async def test_hermes_adapter_full_turn_interactive_approval(tmp_path, monkeypatch, fake_peer_cmd):
     log_path = tmp_path / "peer.log"
     monkeypatch.setenv("ACP_FAKE_LOG", str(log_path))
-    adapter = HermesACPAdapter(command=fake_peer_cmd)
+    adapter = HermesACPAdapter(command=fake_peer_cmd, approval_timeout=30.0)
     try:
         ref = await adapter.start(tmp_path, None)
         assert ref == "fake-sess-1"
 
         await adapter.send_user_message("do the thing")
-        events = await collect(adapter, "turn_end")
+        events = await collect(adapter, "permission_request")
         types = [ev.type for ev in events]
         assert types == [
             "agent_text",
@@ -287,8 +287,6 @@ async def test_hermes_adapter_full_turn_against_fake_peer(tmp_path, monkeypatch,
             "tool_end",
             "usage",
             "permission_request",
-            "status",
-            "turn_end",
         ]
         assert "".join(ev.payload["text"] for ev in events[:2]) == "Hello world"
         assert events[2].payload["toolCallId"] == "tc-1"
@@ -299,18 +297,81 @@ async def test_hermes_adapter_full_turn_against_fake_peer(tmp_path, monkeypatch,
         assert perm["request_id"] == "tc-2"
         assert [o["optionId"] for o in perm["options"]] == ["allow_once", "reject_once"]
 
-        notice = events[6].payload["notice"]
-        assert "Phase 1" in notice and "reject_once" in notice and "tc-2" in notice
+        # The turn BLOCKS until the client answers: no auto-approval, no
+        # turn_end, and the request stays pending.
+        await asyncio.sleep(0.3)
+        assert adapter._queue.empty()
+        assert "tc-2" in adapter._pending_permissions
+        assert "permission_outcome" not in log_path.read_text()
 
-        assert events[7].payload == {"stop_reason": "end_turn"}
+        # Client approves → the selected optionId reaches the peer.
+        await adapter.respond_permission("tc-2", "allow_once")
+        tail = await collect(adapter, "turn_end")
+        assert [ev.type for ev in tail] == ["turn_end"]
+        assert tail[-1].payload == {"stop_reason": "end_turn"}
 
         peer_log = log_path.read_text()
         assert "prompt_text:do the thing" in peer_log
-        # Phase-1 auto-safe-reject actually reached the agent:
+        assert '"optionId": "allow_once"' in peer_log
+        assert '"outcome": "selected"' in peer_log
+    finally:
+        await adapter.stop()
+
+
+async def test_hermes_adapter_deny_reaches_peer(tmp_path, monkeypatch, fake_peer_cmd):
+    log_path = tmp_path / "peer.log"
+    monkeypatch.setenv("ACP_FAKE_LOG", str(log_path))
+    adapter = HermesACPAdapter(command=fake_peer_cmd, approval_timeout=30.0)
+    try:
+        await adapter.start(tmp_path, None)
+        await adapter.send_user_message("do the thing")
+        await collect(adapter, "permission_request")
+        await adapter.respond_permission("tc-2", "reject_once")
+        tail = await collect(adapter, "turn_end")
+        assert tail[-1].type == "turn_end"
+        peer_log = log_path.read_text()
         assert '"optionId": "reject_once"' in peer_log
         assert '"outcome": "selected"' in peer_log
     finally:
         await adapter.stop()
+
+
+async def test_hermes_adapter_approval_timeout_auto_rejects_with_notice(
+    tmp_path, monkeypatch, fake_peer_cmd
+):
+    log_path = tmp_path / "peer.log"
+    monkeypatch.setenv("ACP_FAKE_LOG", str(log_path))
+    adapter = HermesACPAdapter(command=fake_peer_cmd, approval_timeout=0.2)
+    try:
+        await adapter.start(tmp_path, None)
+        await adapter.send_user_message("do the thing")
+        events = await collect(adapter, "turn_end")
+        types = [ev.type for ev in events]
+        # after the blocking window: labelled notice + recorded response
+        idx = types.index("permission_request")
+        assert types[idx + 1 :] == ["status", "permission_response", "turn_end"]
+
+        notice = events[idx + 1].payload["notice"]
+        assert "no answer in" in notice
+        assert "auto-rejected" in notice
+        assert "reject_once" in notice
+        assert "tc-2" in notice
+
+        resp = events[idx + 2].payload
+        assert resp == {"request_id": "tc-2", "option_id": "reject_once", "source": "timeout"}
+
+        # the safest reject option actually reached the peer
+        peer_log = log_path.read_text()
+        assert '"optionId": "reject_once"' in peer_log
+        assert '"outcome": "selected"' in peer_log
+    finally:
+        await adapter.stop()
+
+
+async def test_hermes_adapter_approval_timeout_defaults_from_settings(monkeypatch, fake_peer_cmd):
+    monkeypatch.setenv("ONTHEROAD_APPROVAL_TIMEOUT", "7.5")
+    adapter = HermesACPAdapter(command=fake_peer_cmd)
+    assert adapter._approval_timeout == 7.5
 
 
 async def test_hermes_adapter_cancel_sends_session_cancel(tmp_path, fake_peer_cmd):

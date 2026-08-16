@@ -3,6 +3,7 @@
 // All agent-origin HTML goes through marked -> DOMPurify before insertion.
 
 import * as api from "/api.js";
+import { createJamRenderer } from "/jam.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -46,13 +47,27 @@ export class ChatView {
     // one bubble in place instead of spawning a new bubble per chunk.
     this._streamText = null;   // { el, buf } | null
     this._streamThought = null;
+    // In-memory event list: the source for instant client-side mode
+    // switching (re-render without refetch).
+    this.events = [];
+    this.mode = "jam"; // per-session preference loaded in open()
+    this.jam = createJamRenderer({
+      append: (el, scroll) => this._append(el, scroll),
+      scroll: () => { if (this.autoScroll) this._scrollToBottom(); },
+      renderMarkdown,
+      toolIcons: TOOL_ICONS,
+    });
     this._bindStatic();
   }
+
+  static _modeKey(sessionId) { return `otr:mode:${sessionId}`; }
 
   _bindStatic() {
     if (ChatView._bound) return;
     ChatView._bound = true;
     $("chat-back").addEventListener("click", () => this.onExit());
+    $("mode-jam").addEventListener("click", () => this.setMode("jam"));
+    $("mode-debug").addEventListener("click", () => this.setMode("debug"));
     $("composer").addEventListener("submit", (e) => { e.preventDefault(); this._send(); });
     $("composer-input").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); this._send(); }
@@ -88,6 +103,13 @@ export class ChatView {
     this.autoScroll = true;
     this._streamText = null;
     this._streamThought = null;
+    this.events = [];
+    this.jam.reset();
+    if (typeof OTR !== "undefined" && OTR.preview && typeof OTR.preview._resetSeen === "function") OTR.preview._resetSeen();
+    let saved = null;
+    try { saved = localStorage.getItem(ChatView._modeKey(session.id)); } catch (_) {}
+    this.mode = saved === "debug" || saved === "jam" ? saved : "jam";
+    this._updateModeButtons();
     $("chat-title").textContent = session.title || `${session.adapter} session`;
     $("transcript").innerHTML = "";
     $("transcript").appendChild(this._emptyHint());
@@ -186,15 +208,107 @@ export class ChatView {
       this.rendered.add(seq);
       if (seq > this.lastSeq) this.lastSeq = seq;
     }
+    this.events.push(evt);
+    this._applyState(evt);
+    this._renderOne(evt);
+    this._updateStatusLine();
+  }
+
+  // Status-line / turn bookkeeping — applied exactly once per event (never on
+  // a mode-switch re-render, which replays only the DOM projection).
+  _applyState(evt) {
+    const p = evt.payload || {};
+    switch (evt.type) {
+      case "user_message": this._turnStarted(); break;
+      case "tool_start": this.stepCount += 1; break;
+      case "status": this.activity = p.title || p.text || p.status || "working…"; break;
+      case "turn_end": this._turnEnded(p); break;
+      case "error": this._turnEnded({}); break;
+    }
+  }
+
+  // ---- mode toggle (instant, client-side, per-session persisted) ----
+
+  setMode(mode) {
+    if (mode === this.mode || (mode !== "jam" && mode !== "debug")) return;
+    this.mode = mode;
+    if (this.session) {
+      try { localStorage.setItem(ChatView._modeKey(this.session.id), mode); } catch (_) {}
+    }
+    this._updateModeButtons();
+    this._rerender();
+  }
+
+  _updateModeButtons() {
+    for (const [id, m] of [["mode-jam", "jam"], ["mode-debug", "debug"]]) {
+      const on = this.mode === m;
+      $(id).classList.toggle("active", on);
+      $(id).setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  // Re-render the whole transcript from the in-memory event list (no refetch).
+  _rerender() {
+    const t = $("transcript");
+    t.innerHTML = "";
+    this._closeStreams();
+    this.jam.reset();
+    if (typeof OTR !== "undefined" && OTR.preview && typeof OTR.preview._resetSeen === "function") OTR.preview._resetSeen();
+    if (!this.events.length) t.appendChild(this._emptyHint());
+    else this.events.forEach((evt) => this._renderOne(evt));
+    if (this.autoScroll) this._scrollToBottom();
+  }
+
+  // ---- per-event DOM projection (delegation hooks + mode dispatch) ----
+
+  _renderOne(evt) {
     const hint = $("transcript-empty");
     if (hint) hint.remove();
 
+    // Delegation contract: git slice (2D) may claim these event types.
+    const OTR = window.OTR || {};
+    const gitTypes = new Set(["git_status", "permission_request", "permission_response"]);
+    if (gitTypes.has(evt.type) && OTR.git && typeof OTR.git.renderEvent === "function") {
+      let el = null;
+      try { el = OTR.git.renderEvent(evt, { sessionId: this.session?.id, api }); } catch (_) {}
+      if (el) {
+        this._closeStreams();
+        this.jam.reset();
+    if (typeof OTR !== "undefined" && OTR.preview && typeof OTR.preview._resetSeen === "function") OTR.preview._resetSeen();
+        this._append(el, true);
+        return;
+      }
+      // hook absent or returned null → fall through to built-in rendering
+    }
+
+    if (this.mode === "jam") this._renderJam(evt);
+    else this._renderDebug(evt);
+
+    // Delegation contract: preview slice (2C) may attach a chip after
+    // agent_text / tool_end events (e.g. detected dev-server ports).
+    if ((evt.type === "agent_text" || evt.type === "tool_end") &&
+        OTR.preview && typeof OTR.preview.renderEvent === "function") {
+      let chip = null;
+      try { chip = OTR.preview.renderEvent(evt, { sessionId: this.session?.id }); } catch (_) {}
+      if (chip) this._append(chip, true);
+    }
+  }
+
+  _renderJam(evt) {
+    // jam.js handles every known type; keep debug streams closed so a switch
+    // back to debug starts clean.
+    this._closeStreams();
+    this.jam.render(evt);
+  }
+
+  _renderDebug(evt) {
+    this.jam.reset();
+    if (typeof OTR !== "undefined" && OTR.preview && typeof OTR.preview._resetSeen === "function") OTR.preview._resetSeen(); // symmetric: jam groups never span debug-rendered events
     const p = evt.payload || {};
     switch (evt.type) {
       case "user_message":
         this._closeStreams();
         this._append(this._bubble("evt-user", p.text ?? ""), true);
-        this._turnStarted();
         break;
       case "agent_text":
         this._streamThought = null; // text and thought never share a bubble
@@ -206,7 +320,6 @@ export class ChatView {
         break;
       case "tool_start":
         this._closeStreams();
-        this.stepCount += 1;
         this._renderTool(evt);
         break;
       case "tool_update":
@@ -214,8 +327,7 @@ export class ChatView {
         this._renderTool(evt);
         break;
       case "status":
-        this.activity = p.title || p.text || p.status || "working…";
-        this._appendMeta(`status: ${this.activity}`);
+        this._appendMeta(`status: ${p.title || p.text || p.status || "working…"}`);
         break;
       case "usage":
         this._appendMeta(this._usageText(p));
@@ -227,19 +339,19 @@ export class ChatView {
         this._closeStreams();
         this._renderPermission(evt);
         break;
+      case "permission_response":
+        this._appendMeta(`permission: ${p.outcome || p.option_id || "answered"}`);
+        break;
       case "turn_end":
         this._closeStreams();
-        this._turnEnded(p);
         break;
       case "error":
         this._closeStreams();
         this._renderErrorText(p.message || "agent error");
-        this._turnEnded({});
         break;
       default:
         this._appendMeta(`${evt.type}: ${JSON.stringify(p).slice(0, 200)}`);
     }
-    this._updateStatusLine();
   }
 
   _turnStarted() {
@@ -355,7 +467,8 @@ export class ChatView {
     else if (!body.textContent) body.textContent = "(no payload)";
   }
 
-  // Permission request: inline card, Phase 1 auto-approved notice, buttons disabled.
+  // Permission request fallback (git.js normally claims this event type and
+  // renders live approve/deny buttons): inert card, buttons disabled.
   _renderPermission(evt) {
     const p = evt.payload || {};
     const div = document.createElement("div");
@@ -375,7 +488,7 @@ export class ChatView {
     div.appendChild(opts);
     const note = document.createElement("span");
     note.className = "perm-note";
-    note.textContent = "auto-approved (personal sandbox) — interactive approvals coming soon";
+    note.textContent = "approvals unavailable in this view — auto-approves after the server timeout";
     div.appendChild(note);
     this._append(div, true);
   }

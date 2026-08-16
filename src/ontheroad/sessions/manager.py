@@ -47,6 +47,10 @@ class AdapterUnavailable(Exception):
     pass
 
 
+class UnknownPermissionRequest(Exception):
+    pass
+
+
 def _default_adapter_factory(name: str) -> Any:
     """Instantiate an adapter from the registry (ontheroad.adapters.base).
 
@@ -75,6 +79,9 @@ class SessionManager:
         self._pumps: dict[str, asyncio.Task] = {}
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
         self._pub_locks: dict[str, asyncio.Lock] = {}
+        # Open permission requests per session (request_id set), tracked from
+        # the adapter event stream so approvals can be validated.
+        self._pending_perms: dict[str, set[str]] = {}
 
     @property
     def store(self) -> EventStore:
@@ -170,6 +177,29 @@ class SessionManager:
         await self._adapters[session_id].send_user_message(text)
         return event["seq"]
 
+    async def respond_permission(
+        self, session_id: str, request_id: str, option_id: str
+    ) -> None:
+        """Route an approval decision to the session's adapter.
+
+        Persists a ``permission_response`` event first so the transcript
+        records the decision, then forwards it via ``adapter.respond_permission``.
+        Raises SessionNotFound / UnknownPermissionRequest for bad routing.
+        """
+        await self._require(session_id)
+        pending = self._pending_perms.get(session_id, set())
+        if request_id not in pending:
+            raise UnknownPermissionRequest(request_id)
+        pending.discard(request_id)
+        await self._persist_and_broadcast(
+            session_id,
+            "permission_response",
+            {"request_id": request_id, "option_id": option_id, "source": "user"},
+        )
+        adapter = self._adapters.get(session_id)
+        if adapter is not None:
+            await adapter.respond_permission(request_id, option_id)
+
     async def cancel(self, session_id: str) -> None:
         await self._require(session_id)
         adapter = self._adapters.get(session_id)
@@ -210,6 +240,15 @@ class SessionManager:
             async for ev in adapter.events():
                 payload = dict(ev.payload)
                 await self._persist_and_broadcast(session_id, ev.type, payload)
+                if ev.type == "permission_request" and payload.get("request_id"):
+                    self._pending_perms.setdefault(session_id, set()).add(
+                        str(payload["request_id"])
+                    )
+                elif ev.type == "permission_response" and payload.get("request_id"):
+                    # e.g. adapter-side timeout auto-approval resolved it
+                    self._pending_perms.get(session_id, set()).discard(
+                        str(payload["request_id"])
+                    )
                 if ev.type == "turn_end":
                     await self._store.update_session(session_id, status="idle")
                     await self._persist_and_broadcast(

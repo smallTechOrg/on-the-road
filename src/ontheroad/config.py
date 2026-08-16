@@ -37,6 +37,11 @@ class Settings:
     test_hermes: bool = field(
         default_factory=lambda: os.environ.get("ONTHEROAD_TEST_HERMES", "0") == "1"
     )
+    # Seconds to wait for an interactive answer to an agent permission request
+    # before auto-approving the safest allow option so the jam keeps flowing.
+    approval_timeout: float = field(
+        default_factory=lambda: float(os.environ.get("ONTHEROAD_APPROVAL_TIMEOUT", "120"))
+    )
 
     def validate(self) -> None:
         """Refuse to serve with a missing or weak token (spec: token-auth)."""

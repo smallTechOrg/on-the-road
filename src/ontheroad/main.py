@@ -85,11 +85,44 @@ def create_app() -> FastAPI:
         app.include_router(api_sessions.router)
         app.include_router(api_stream.router)
 
+    # Phase-2 routers (guarded like the above so sibling slices land in any
+    # order; once Phase 2 is complete these imports MUST all succeed — a
+    # warning here on a finished build is a bug, not noise).
+    preview_available = False
+    try:
+        from ontheroad.api import usage as api_usage  # noqa: PLC0415
+    except ImportError:
+        log.warning("usage_router_unavailable")
+    else:
+        app.include_router(api_usage.router)
+
+    try:
+        from ontheroad.preview import proxy as preview_proxy  # noqa: PLC0415
+    except ImportError:
+        log.warning("preview_router_unavailable")
+    else:
+        app.include_router(preview_proxy.router)
+        preview_available = True
+
+    try:
+        from ontheroad.api import approvals as api_approvals  # noqa: PLC0415
+    except ImportError:
+        log.warning("approvals_router_unavailable")
+    else:
+        app.include_router(api_approvals.router)
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
-    # Middleware (outermost first at request time): request logging wraps auth
-    # so 401s are logged too; auth gates /api/* and /preview/*.
+    # Middleware (outermost first at request time = LAST added): request
+    # logging wraps everything so 401s/5xx are logged + audited too; the
+    # preview token middleware runs BEFORE (outside) auth so it can promote
+    # ?token=/cookie into an Authorization header; auth gates /api/* and
+    # /preview/*.
     app.add_middleware(AuthMiddleware)
+    if preview_available:
+        from ontheroad.preview.proxy import PreviewTokenMiddleware  # noqa: PLC0415
+
+        app.add_middleware(PreviewTokenMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     return app
 

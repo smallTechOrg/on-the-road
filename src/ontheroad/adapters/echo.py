@@ -55,8 +55,10 @@ class EchoAdapter(AgentAdapter):
             yield await self._queue.get()
 
     async def respond_permission(self, request_id: str, option_id: str) -> None:
-        # The echo agent never requests permissions.
-        return None
+        # Forward the decision to the child, which acks and ends the held turn.
+        await self._send(
+            {"type": "permission_response", "request_id": request_id, "option_id": option_id}
+        )
 
     async def cancel(self) -> None:
         await self._send({"type": "cancel"})

@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import aiosqlite
+
+from ontheroad.usage import rollup as usage_rollup
 
 ACTIVE_STATUSES = ("starting", "running", "waiting_input", "blocked")
 
@@ -154,6 +157,20 @@ class EventStore:
                 "UPDATE sessions SET last_seq = ?, updated_at = ? WHERE id = ?",
                 (seq, ts, session_id),
             )
+            if type_ == "usage":
+                # Rollup rides the same transaction as the event insert
+                # (spec/data.md: usage_daily updated transactionally with each
+                # usage-event append; recomputable from events on failure).
+                try:
+                    await usage_rollup.apply_usage(
+                        self._conn, usage_rollup.day_of(ts), payload
+                    )
+                except Exception:  # noqa: BLE001 — events are truth; log & keep
+                    logging.getLogger("ontheroad.usage").warning(
+                        "usage_rollup_failed",
+                        extra={"session_id": session_id, "seq": seq},
+                        exc_info=True,
+                    )
             await self._conn.commit()
             return {"seq": seq, "type": type_, "payload": payload, "ts": ts}
 

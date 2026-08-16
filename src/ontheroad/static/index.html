@@ -30,7 +30,7 @@
     <header class="appbar">
       <h1>On The Road</h1>
       <div class="appbar-actions">
-        <span class="chip stub" title="Phase 2">tokens — coming soon</span>
+        <span id="usage-counter" class="usage-counter chip" title="Daily token total" hidden></span>
         <button class="icon-btn stub" title="Notifications — coming soon (Phase 3)" aria-label="Notifications (coming soon)">
           🔔<span class="stub-dot">coming soon</span>
         </button>
@@ -75,8 +75,8 @@
         <div id="chat-status-line" class="status-line muted">idle</div>
       </div>
       <div class="mode-toggle" role="group" aria-label="Render mode">
-        <button class="mode-btn stub" disabled title="Jam mode — coming soon (Phase 2)">Jam <span class="stub-dot">coming soon</span></button>
-        <button class="mode-btn active">Debug</button>
+        <button id="mode-jam" type="button" class="mode-btn" aria-pressed="false">Jam</button>
+        <button id="mode-debug" type="button" class="mode-btn" aria-pressed="false">Debug</button>
       </div>
     </header>
     <div id="conn-indicator" class="conn-indicator" data-state="idle">
@@ -104,5 +104,14 @@
   <script src="/vendor/marked.min.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script type="module" src="/app.js"></script>
+  <!-- Phase 2 sibling-slice modules (usage / preview / git). Loaded
+       defensively: a module that is not shipped yet must never break the
+       app, so each import failure is swallowed. Each module self-registers
+       on window.OTR (e.g. OTR.git.renderEvent, OTR.preview.renderEvent). -->
+  <script type="module">
+    for (const mod of ["/usage.js", "/preview.js", "/git.js"]) {
+      import(mod).catch(() => import("/static" + mod).catch(() => {}));
+    }
+  </script>
 </body>
 </html>

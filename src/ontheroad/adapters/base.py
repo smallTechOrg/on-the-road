@@ -25,6 +25,7 @@ EVENT_TYPES = frozenset(
         "usage",
         "git_status",
         "permission_request",
+        "permission_response",
         "status",
         "turn_end",
         "error",

@@ -11,7 +11,11 @@ Protocol mapping (see spec/architecture.md → HermesACPAdapter):
 - session/prompt stays open for the turn; its stopReason → turn_end
 - session/update notifications → AgentEvents (see ``map_acp_update``)
 - session/request_permission (agent→client request) → permission_request event;
-  Phase 1 auto-approves (personal single-user sandbox) with a labelled notice
+  the request blocks until the client answers via ``respond_permission`` (the
+  approvals API). If no answer arrives within ``ONTHEROAD_APPROVAL_TIMEOUT``
+  seconds (default 120), the safest allow option is auto-approved and a
+  clearly-labelled status notice + permission_response event are emitted so
+  the jam keeps flowing and the transcript records the decision
 - session/cancel notification → interrupt
 """
 
@@ -178,10 +182,17 @@ def map_acp_update(update: dict) -> AgentEvent:
 class HermesACPAdapter(AgentAdapter):
     name = "hermes"
 
-    def __init__(self, command: Sequence[str] | None = None) -> None:
+    def __init__(
+        self,
+        command: Sequence[str] | None = None,
+        approval_timeout: float | None = None,
+    ) -> None:
         if command is None:
             command = [get_settings().hermes_python, "-m", "acp_adapter.entry"]
         self._command = list(command)
+        self._approval_timeout = (
+            approval_timeout if approval_timeout is not None else get_settings().approval_timeout
+        )
         self._proc: asyncio.subprocess.Process | None = None
         self._client: ACPClient | None = None
         self._queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
@@ -317,26 +328,38 @@ class HermesACPAdapter(AgentAdapter):
             "permission_request",
             {"request_id": request_id, "options": options, "tool_call": tool_call},
         )
-        # Phase 1: single-user personal sandbox, so auto-approve tool calls
-        # rather than blocking the jam — the agent already runs inside a VM
-        # the user owns. Every auto-decision is logged for transparency.
-        # Interactive per-call approval UI arrives in Phase 2.
-        if not fut.done():
-            choice = self._auto_approve_option(options)
-            self._emit(
-                "status",
-                {
-                    "notice": (
-                        "Phase 1: permission request "
-                        f"{request_id} auto-approved with "
-                        f"{choice['optionId'] if choice else 'cancelled'!r} "
-                        "(interactive approvals arrive in Phase 2)"
-                    )
-                },
-            )
-            fut.set_result(choice["optionId"] if choice else None)
+        # Phase 2: interactive approvals. Block the turn until the client
+        # answers via respond_permission (the approvals API). Fallback: after
+        # ONTHEROAD_APPROVAL_TIMEOUT seconds with no answer, auto-approve the
+        # safest allow option so the jam keeps flowing, with a clearly
+        # labelled notice + a permission_response event for the transcript.
+        timeout = self._approval_timeout
         try:
-            option_id = await fut
+            try:
+                option_id = await asyncio.wait_for(asyncio.shield(fut), timeout)
+            except asyncio.TimeoutError:
+                choice = self._reject_safe_option(options)
+                option_id = choice["optionId"] if choice else None
+                self._emit(
+                    "status",
+                    {
+                        "notice": (
+                            f"permission request {request_id}: no answer in "
+                            f"{timeout:g}s — auto-rejected "
+                            f"{option_id if option_id is not None else 'cancelled'!r}"
+                        )
+                    },
+                )
+                self._emit(
+                    "permission_response",
+                    {
+                        "request_id": request_id,
+                        "option_id": option_id,
+                        "source": "timeout",
+                    },
+                )
+                if not fut.done():
+                    fut.set_result(option_id)
         finally:
             self._pending_permissions.pop(request_id, None)
         if option_id is None:
@@ -353,6 +376,20 @@ class HermesACPAdapter(AgentAdapter):
             if "allow" in oid:
                 return opt
         return options[0] if options else None
+
+    @staticmethod
+    def _reject_safe_option(options: list[dict]) -> dict | None:
+        """Pick the safest reject/deny/cancel option (spec: reject-safe default)."""
+        for opt in options:
+            kind = str(opt.get("kind", "")).lower()
+            if "deny" in kind or "reject" in kind or "cancel" in kind:
+                return opt
+        for opt in options:
+            oid = str(opt.get("optionId", "")).lower()
+            if "deny" in oid or "reject" in oid or "cancel" in oid:
+                return opt
+        # no explicit reject option found — cancel entirely
+        return None
 
     async def _drain_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None

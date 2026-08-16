@@ -239,6 +239,50 @@ h1, h2 { margin: 0; font-weight: 600; }
 }
 .composer textarea:disabled { opacity: 0.5; }
 
+/* ---------- jam mode (condensed projection) ---------- */
+.jam-text { margin-right: 4%; font-size: 0.95rem; }
+
+.jam-marker {
+  font-size: 0.75rem; color: var(--muted);
+  padding: 2px 4px; letter-spacing: 0.01em;
+}
+.jam-milestone { color: var(--accent); }
+.jam-git { color: var(--green); }
+.jam-perm { color: var(--amber); }
+
+.jam-thoughts {
+  font-size: 0.78rem; color: var(--muted);
+  border-left: 2px solid var(--border); padding-left: 10px;
+}
+.jam-thoughts summary { cursor: pointer; list-style: none; opacity: 0.7; }
+.jam-thoughts summary::-webkit-details-marker { display: none; }
+.jam-thoughts-body { font-style: italic; opacity: 0.75; margin-top: 4px; overflow-wrap: break-word; }
+.jam-thoughts-body > :first-child { margin-top: 0; }
+.jam-thoughts-body > :last-child { margin-bottom: 0; }
+
+.jam-tools {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-input); font-size: 0.8rem;
+}
+.jam-tools > summary {
+  padding: 6px 12px; cursor: pointer; list-style: none; color: var(--muted);
+}
+.jam-tools > summary::-webkit-details-marker { display: none; }
+.jam-tools-list { border-top: 1px solid var(--border); padding: 4px 0; }
+.jam-tool-row {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px;
+}
+.jam-tool-row .tool-kind { font-size: 0.9rem; }
+.jam-tool-row .tool-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jam-tool-row .tool-status { font-size: 0.8rem; color: var(--muted); }
+.jam-tool-row .tool-status.completed { color: var(--green); }
+.jam-tool-row .tool-status.failed { color: var(--red); }
+
+/* ---------- home usage counter (wired by usage.js, slice 2B) ---------- */
+.usage-counter { font-variant-numeric: tabular-nums; color: var(--muted); }
+
 /* ---------- offline banner ---------- */
 .offline-banner {
   background: #78350f; color: #fde68a; text-align: center;
