@@ -4,13 +4,14 @@ Includes a minimal hand-rolled ACP JSON-RPC 2.0 client (newline-delimited over
 asyncio stdio streams). Only the client-side subset the adapter needs.
 
 Protocol mapping (see spec/architecture.md → HermesACPAdapter):
-- initialize → handshake; authMethods present → actionable error event
+- initialize → handshake; setup-only authMethods (no provider method offered)
+  → actionable error event
 - session/new → sessionId (adapter_session_ref); session/load falling back to
   session/resume on re-attach
 - session/prompt stays open for the turn; its stopReason → turn_end
 - session/update notifications → AgentEvents (see ``map_acp_update``)
 - session/request_permission (agent→client request) → permission_request event;
-  Phase 1 auto-selects the reject-safe default with a labelled notice
+  Phase 1 auto-approves (personal single-user sandbox) with a labelled notice
 - session/cancel notification → interrupt
 """
 
@@ -316,21 +317,24 @@ class HermesACPAdapter(AgentAdapter):
             "permission_request",
             {"request_id": request_id, "options": options, "tool_call": tool_call},
         )
-        # Phase 1: auto-select the reject-safe default, labelled in the transcript.
+        # Phase 1: single-user personal sandbox, so auto-approve tool calls
+        # rather than blocking the jam — the agent already runs inside a VM
+        # the user owns. Every auto-decision is logged for transparency.
+        # Interactive per-call approval UI arrives in Phase 2.
         if not fut.done():
-            safe = self._safe_option(options)
+            choice = self._auto_approve_option(options)
             self._emit(
                 "status",
                 {
                     "notice": (
                         "Phase 1: permission request "
-                        f"{request_id} auto-answered with safe default "
-                        f"{safe['optionId'] if safe else 'cancelled'!r} "
+                        f"{request_id} auto-approved with "
+                        f"{choice['optionId'] if choice else 'cancelled'!r} "
                         "(interactive approvals arrive in Phase 2)"
                     )
                 },
             )
-            fut.set_result(safe["optionId"] if safe else None)
+            fut.set_result(choice["optionId"] if choice else None)
         try:
             option_id = await fut
         finally:
@@ -340,15 +344,15 @@ class HermesACPAdapter(AgentAdapter):
         return {"outcome": {"outcome": "selected", "optionId": option_id}}
 
     @staticmethod
-    def _safe_option(options: list[dict]) -> dict | None:
+    def _auto_approve_option(options: list[dict]) -> dict | None:
         for opt in options:
-            if "reject" in str(opt.get("kind", "")).lower():
+            if "allow" in str(opt.get("kind", "")).lower():
                 return opt
         for opt in options:
             oid = str(opt.get("optionId", "")).lower()
-            if "reject" in oid or "deny" in oid:
+            if "allow" in oid:
                 return opt
-        return None
+        return options[0] if options else None
 
     async def _drain_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None

@@ -328,7 +328,7 @@ export class ChatView {
     else if (!body.textContent) body.textContent = "(no payload)";
   }
 
-  // Permission request: inline card, Phase 1 auto-declined notice, buttons disabled.
+  // Permission request: inline card, Phase 1 auto-approved notice, buttons disabled.
   _renderPermission(evt) {
     const p = evt.payload || {};
     const div = document.createElement("div");
@@ -348,7 +348,7 @@ export class ChatView {
     div.appendChild(opts);
     const note = document.createElement("span");
     note.className = "perm-note";
-    note.textContent = "auto-declined (safe default) — approvals coming soon";
+    note.textContent = "auto-approved (personal sandbox) — interactive approvals coming soon";
     div.appendChild(note);
     this._append(div, true);
   }
