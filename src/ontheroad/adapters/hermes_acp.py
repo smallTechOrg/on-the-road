@@ -219,12 +219,17 @@ class HermesACPAdapter(AgentAdapter):
                 "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}},
             },
         )
-        if init.get("authMethods"):
+        auth_methods = init.get("authMethods") or []
+        # Hermes always advertises a terminal setup method for fresh installs,
+        # even when a runtime provider is already configured — so its presence
+        # alone doesn't mean auth is missing. Only treat it as a real setup
+        # requirement when no other (provider-specific) method is offered.
+        if auth_methods and all(m.get("type") == "terminal" for m in auth_methods):
             self._emit(
                 "error",
                 {
                     "message": "Hermes requires authentication setup: run `hermes acp --setup` on the VM",
-                    "auth_methods": init["authMethods"],
+                    "auth_methods": auth_methods,
                 },
             )
         if resume_ref:

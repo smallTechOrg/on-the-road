@@ -207,7 +207,12 @@ FAKE_PEER = textwrap.dedent(
         if method == "initialize":
             result = {"protocolVersion": 1, "agentCapabilities": {"loadSession": True}}
             if os.environ.get("ACP_FAKE_AUTH"):
-                result["authMethods"] = [{"id": "terminal-setup"}]
+                result["authMethods"] = [{"id": "terminal-setup", "type": "terminal"}]
+            if os.environ.get("ACP_FAKE_PROVIDER_CONFIGURED"):
+                result["authMethods"] = [
+                    {"id": "custom", "name": "custom runtime credentials"},
+                    {"id": "terminal-setup", "type": "terminal"},
+                ]
             send({"jsonrpc": "2.0", "id": mid, "result": result})
         elif method == "session/new":
             send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "fake-sess-1"}})
@@ -355,6 +360,17 @@ async def test_hermes_adapter_auth_required_emits_actionable_error(tmp_path, mon
         events = await collect(adapter, "error")
         assert events[-1].type == "error"
         assert "hermes acp --setup" in events[-1].payload["message"]
+    finally:
+        await adapter.stop()
+
+
+async def test_hermes_adapter_with_configured_provider_does_not_error(tmp_path, monkeypatch, fake_peer_cmd):
+    monkeypatch.setenv("ACP_FAKE_PROVIDER_CONFIGURED", "1")
+    adapter = HermesACPAdapter(command=fake_peer_cmd)
+    try:
+        ref = await adapter.start(tmp_path, None)
+        assert ref == "fake-sess-1"
+        assert adapter._queue.empty()
     finally:
         await adapter.stop()
 
