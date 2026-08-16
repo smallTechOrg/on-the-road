@@ -42,6 +42,10 @@ export class ChatView {
     this.activity = "idle";
     this.statusTimer = null;
     this.autoScroll = true;
+    // Streaming coalescing: consecutive agent_text/agent_thought chunks grow
+    // one bubble in place instead of spawning a new bubble per chunk.
+    this._streamText = null;   // { el, buf } | null
+    this._streamThought = null;
     this._bindStatic();
   }
 
@@ -82,6 +86,8 @@ export class ChatView {
     this.stepCount = 0;
     this.activity = "idle";
     this.autoScroll = true;
+    this._streamText = null;
+    this._streamThought = null;
     $("chat-title").textContent = session.title || `${session.adapter} session`;
     $("transcript").innerHTML = "";
     $("transcript").appendChild(this._emptyHint());
@@ -186,16 +192,20 @@ export class ChatView {
     const p = evt.payload || {};
     switch (evt.type) {
       case "user_message":
+        this._closeStreams();
         this._append(this._bubble("evt-user", p.text ?? ""), true);
         this._turnStarted();
         break;
       case "agent_text":
-        this._appendAgentText(p.text ?? "", false, seq);
+        this._streamThought = null; // text and thought never share a bubble
+        this._appendStreamChunk("_streamText", "evt-agent", p.text ?? "");
         break;
       case "agent_thought":
-        this._appendAgentText(p.text ?? "", true, seq);
+        this._streamText = null;
+        this._appendStreamChunk("_streamThought", "evt-agent evt-thought", p.text ?? "");
         break;
       case "tool_start":
+        this._closeStreams();
         this.stepCount += 1;
         this._renderTool(evt);
         break;
@@ -214,12 +224,15 @@ export class ChatView {
         this._appendMeta(`git: ${p.summary || JSON.stringify(p)}`);
         break;
       case "permission_request":
+        this._closeStreams();
         this._renderPermission(evt);
         break;
       case "turn_end":
+        this._closeStreams();
         this._turnEnded(p);
         break;
       case "error":
+        this._closeStreams();
         this._renderErrorText(p.message || "agent error");
         this._turnEnded({});
         break;
@@ -262,12 +275,26 @@ export class ChatView {
     return div;
   }
 
-  _appendAgentText(text, isThought, seq) {
-    const div = document.createElement("div");
-    div.className = `evt evt-agent${isThought ? " evt-thought" : ""}`;
-    if (seq !== undefined) div.dataset.seq = String(seq);
-    div.innerHTML = renderMarkdown(text); // sanitized in renderMarkdown
-    this._append(div, true);
+  // Coalesce consecutive same-kind chunks (agent_text or agent_thought) into
+  // one growing bubble instead of one bubble per chunk — Hermes streams
+  // replies as many small chunks, and re-rendering markdown over the
+  // accumulated buffer keeps formatting (code fences, lists) intact.
+  _appendStreamChunk(slot, cls, chunk) {
+    let stream = this[slot];
+    if (!stream) {
+      const el = document.createElement("div");
+      el.className = `evt ${cls}`;
+      this._append(el, true);
+      stream = this[slot] = { el, buf: "" };
+    }
+    stream.buf += chunk;
+    stream.el.innerHTML = renderMarkdown(stream.buf); // sanitized in renderMarkdown
+    if (this.autoScroll) this._scrollToBottom();
+  }
+
+  _closeStreams() {
+    this._streamText = null;
+    this._streamThought = null;
   }
 
   _appendMeta(text) {
