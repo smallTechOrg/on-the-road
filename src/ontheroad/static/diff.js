@@ -167,15 +167,4 @@
   window.OTR = window.OTR || {};
   window.OTR.diff = { openDiffView };
 
-  // Wire up the button if it exists
-  document.addEventListener("DOMContentLoaded", () => {
-    const btn = document.getElementById("btn-diff");
-    if (btn) {
-      btn.addEventListener("click", () => {
-        // Get current session ID from the app state
-        const sid = window.OTR && window.OTR.currentSessionId;
-        if (sid) openDiffView(sid);
-      });
-    }
-  });
 })();

@@ -229,8 +229,14 @@ h1, h2 { margin: 0; font-weight: 600; }
   border-top: 1px solid var(--border); background: var(--bg-raised);
   padding: 8px 12px calc(10px + var(--safe-bottom));
 }
-.chips-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+.chips-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; flex-shrink: 0; }
 .chips-row::-webkit-scrollbar { display: none; }
+.chip-action {
+  background: var(--accent-dim); color: #fff; border-color: var(--accent-dim);
+  font-weight: 600; font-size: 0.85rem; padding: 8px 16px;
+  min-height: 38px; touch-action: manipulation;
+}
+.chip-action:active { opacity: 0.75; }
 .composer { display: flex; gap: 8px; align-items: flex-end; }
 .composer textarea {
   flex: 1; resize: none; max-height: 30vh;
@@ -302,7 +308,7 @@ h1, h2 { margin: 0; font-weight: 600; }
   -webkit-overflow-scrolling: touch;
 }
 .term-input-bar {
-  display: flex; gap: 8px; padding: 8px 12px;
+  display: flex; gap: 8px; padding: 8px 12px calc(8px + var(--safe-bottom));
   background: var(--bg-raised); border-top: 1px solid var(--border);
 }
 .term-input-bar input {

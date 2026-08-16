@@ -204,26 +204,6 @@
     overlay.focus();
   }
 
-  /* ---------- Wire up button ---------- */
-
-  function init() {
-    const btn = document.getElementById("btn-terminal");
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      // Get current session ID from the URL hash
-      const hash = location.hash || "";
-      const m = hash.match(/^#session\/([a-zA-Z0-9_-]+)/);
-      if (m) {
-        openTerminal(m[1]);
-      }
-    });
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
-
+  window.OTR = window.OTR || {};
   window.OTR.term = { openTerminal: openTerminal };
 })();

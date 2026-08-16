@@ -203,11 +203,21 @@ $("new-session-form").addEventListener("submit", async (e) => {
 function openSession(session) {
   stopHomeRefresh();
   show("screen-chat");
+  OTR.currentSessionId = session.id;
   OTR.chat.open(session);
 }
 
+// Wire terminal/diff buttons here where session state is guaranteed
+$("btn-terminal")?.addEventListener("click", () => {
+  if (OTR.currentSessionId && OTR.term) OTR.term.openTerminal(OTR.currentSessionId);
+});
+$("btn-diff")?.addEventListener("click", () => {
+  if (OTR.currentSessionId && OTR.diff) OTR.diff.openDiffView(OTR.currentSessionId);
+});
+
 function exitChat() {
   OTR.chat.close();
+  OTR.currentSessionId = null;
   showHome();
 }
 
