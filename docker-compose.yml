@@ -1,0 +1,14 @@
+services:
+  ontheroad:
+    build: .
+    ports:
+      - "8100:8100"
+    env_file:
+      - .env
+    environment:
+      ONTHEROAD_DB_PATH: /data/ontheroad.db
+      ONTHEROAD_PORT: "8100"
+    volumes:
+      - ./data:/data
+      - ~/.hermes:/root/.hermes
+    restart: unless-stopped

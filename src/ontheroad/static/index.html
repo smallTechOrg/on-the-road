@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>On The Road</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Token screen -->
+  <section id="screen-token" class="screen" hidden>
+    <div class="token-card">
+      <h1>On The Road</h1>
+      <p class="muted">Enter your access token to connect.</p>
+      <form id="token-form">
+        <input id="token-input" type="password" placeholder="Access token"
+               autocomplete="current-password" required />
+        <button type="submit" class="btn primary">Connect</button>
+      </form>
+      <p id="token-error" class="error-text" hidden>Invalid token</p>
+    </div>
+  </section>
+
+  <!-- Home: session list -->
+  <section id="screen-home" class="screen" hidden>
+    <header class="appbar">
+      <h1>On The Road</h1>
+      <div class="appbar-actions">
+        <span id="usage-counter" class="usage-counter chip" title="Daily token total" hidden></span>
+        <button class="icon-btn stub" title="Notifications — deferred" aria-label="Notifications (deferred)">
+          🔔<span class="stub-dot">coming soon</span>
+        </button>
+      </div>
+    </header>
+    <main id="session-list" class="session-list">
+      <p class="muted center" id="sessions-loading">Loading sessions…</p>
+    </main>
+    <button id="fab-new" class="fab" aria-label="New session">＋</button>
+
+    <!-- New-session sheet -->
+    <div id="new-session-sheet" class="sheet-backdrop" hidden>
+      <form id="new-session-form" class="sheet">
+        <h2>New session</h2>
+        <label>Agent
+          <select id="ns-adapter">
+            <option value="hermes">Hermes</option>
+            <option value="echo">Echo (dev) — stub agent</option>
+          </select>
+        </label>
+        <label>Title (optional)
+          <input id="ns-title" type="text" placeholder="e.g. Fix the login bug" />
+        </label>
+        <label>Workdir (optional)
+          <input id="ns-workdir" type="text" placeholder="server default" />
+        </label>
+        <p id="ns-error" class="error-text" hidden></p>
+        <div class="sheet-actions">
+          <button type="button" class="btn" id="ns-cancel">Cancel</button>
+          <button type="submit" class="btn primary" id="ns-create">Create</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Chat view -->
+  <section id="screen-chat" class="screen" hidden>
+    <header class="appbar chat-header">
+      <button id="chat-back" class="icon-btn" aria-label="Back">←</button>
+      <div class="chat-titles">
+        <h1 id="chat-title">Session</h1>
+        <div id="chat-status-line" class="status-line muted">idle</div>
+      </div>
+      <div class="mode-toggle" role="group" aria-label="Render mode">
+        <button id="mode-jam" type="button" class="mode-btn" aria-pressed="false">Jam</button>
+        <button id="mode-debug" type="button" class="mode-btn" aria-pressed="false">Debug</button>
+      </div>
+    </header>
+    <div id="conn-indicator" class="conn-indicator" data-state="idle">
+      <span class="dot"></span><span id="conn-text">connecting…</span>
+    </div>
+    <main id="transcript" class="transcript">
+      <p class="muted center" id="transcript-empty">Send a message to start the agent.</p>
+    </main>
+    <button id="jump-latest" class="jump-pill" hidden>jump to latest ↓</button>
+    <footer class="composer-area">
+      <div class="chips-row">
+        <button class="chip chip-action" id="btn-terminal" title="Open terminal in session workdir">🖥️ Terminal</button>
+        <button class="chip chip-action" id="btn-diff" title="View git diff in session workdir">📝 Diff</button>
+      </div>
+      <form id="composer" class="composer">
+        <textarea id="composer-input" rows="1" placeholder="Message the agent…"></textarea>
+        <button type="submit" id="send-btn" class="btn primary" aria-label="Send">Send</button>
+        <button type="button" id="stop-btn" class="btn danger" hidden aria-label="Stop turn">Stop</button>
+      </form>
+    </footer>
+  </section>
+
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+  <script type="module" src="/app.js"></script>
+  <!-- Phase 2 sibling-slice modules (usage / preview / git). Loaded
+       defensively: a module that is not shipped yet must never break the
+       app, so each import failure is swallowed. Each module self-registers
+       on window.OTR (e.g. OTR.git.renderEvent, OTR.preview.renderEvent). -->
+  <script type="module">
+    for (const mod of ["/usage.js", "/preview.js", "/git.js", "/term.js", "/diff.js"]) {
+      import(mod).catch(() => import("/static" + mod).catch(() => {}));
+    }
+  </script>
+</body>
+</html>
